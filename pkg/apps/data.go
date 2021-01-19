@@ -51,9 +51,9 @@ func ParseAppList(reader io.Reader) (AppList, error) {
 	return appList, nil
 }
 
-func LoadAppListFromWeb() (io.ReadCloser, error) {
+func LoadAppListFromWeb(Timeout time.Duration) (io.ReadCloser, error) {
 	client := http.Client{
-		Timeout: 1 * time.Second,
+		Timeout: Timeout,
 	}
 
 	req, err := client.Get("https://apps.fyne.io/api/v1/list.json")
@@ -64,9 +64,8 @@ func LoadAppListFromWeb() (io.ReadCloser, error) {
 	return req.Body, nil
 }
 
-// TODO make actual cache read()
 func LoadAppListFromCache() (io.ReadCloser, error) {
-	res, err := os.Open(filepath.Join("testdata", "list.json"))
+	res, err := os.Open(filepath.Join("testdata", "apps-list.json"))
 	if err != nil {
 		return nil, err
 	}

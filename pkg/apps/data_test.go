@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"fyne.io/apps/pkg/data"
 	"github.com/stretchr/testify/assert"
 	"io"
 	"os"
@@ -10,7 +11,12 @@ import (
 )
 
 func loadAppListFromTestData() (io.ReadCloser, error) {
-	res, err := os.Open(filepath.Join("testdata", "list.json"))
+	p, err := data.GetCacheDir()
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := os.Open(filefilepath.Join(p, "apps-list.json"))
 	if err != nil {
 		return nil, err
 	}

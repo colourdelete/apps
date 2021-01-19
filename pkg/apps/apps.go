@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"fyne.io/fyne"
@@ -27,6 +28,16 @@ type Apps struct {
 	developer, version           *widget.Label
 	link                         *widget.Hyperlink
 	icon, screenshot             *canvas.Image
+	TasksLock                    sync.Mutex
+	TasksUpdated                 bool
+	Tasks                        []*Task
+}
+
+type Task struct {
+	status bool
+	err    error
+	msg    string
+	Lock   sync.Mutex
 }
 
 func (w *Apps) loadAppDetail(app App) {
@@ -152,33 +163,131 @@ func (w *Apps) installer(win fyne.Window) func() {
 	}
 }
 
-func NewApps(apps AppList, win fyne.Window) fyne.CanvasObject {
-	w := &Apps{}
-	w.name = widget.NewLabel("")
-	w.developer = widget.NewLabel("")
-	w.link = widget.NewHyperlink("", nil)
-	w.summary = widget.NewLabel("")
-	w.summary.Wrapping = fyne.TextWrapWord
-	w.version = widget.NewLabel("")
-	w.date = widget.NewLabel("")
-	w.icon = &canvas.Image{}
-	w.icon.FillMode = canvas.ImageFillContain
-	w.screenshot = &canvas.Image{}
-	w.screenshot.SetMinSize(fyne.NewSize(320, 240))
-	w.screenshot.FillMode = canvas.ImageFillContain
+type taskShow struct {
+	fyne.CanvasObject
+	icon  *widget.Icon
+	prog  *widget.ProgressBarInfinite
+	label *widget.Label
+}
 
-	dateAndVersion := fyne.NewContainerWithLayout(layout.NewGridLayout(2), w.date,
-		widget.NewForm(&widget.FormItem{Text: "Version", Widget: w.version}))
+func (a *Apps) tasks(win fyne.Window) func() {
+	return func() {
+		tasksList := widget.NewList(
+			func() int {
+				a.TasksLock.Lock()
+				defer a.TasksLock.Unlock()
+				return len(a.Tasks)
+			},
+			func() fyne.CanvasObject {
+				icon := widget.NewIcon(theme.DownloadIcon())
+				prog := widget.NewProgressBarInfinite()
+				label := widget.NewLabel("Loading...")
+				return taskShow{
+					CanvasObject: fyne.NewContainerWithLayout(
+						layout.NewHBoxLayout(),
+						icon,
+						prog,
+						label,
+					),
+					icon:  icon,
+					prog:  prog,
+					label: label,
+				}
+			},
+			func(id widget.ListItemID, object fyne.CanvasObject) {
+				a.TasksLock.Lock()
+				task := a.Tasks[id]
+				a.TasksUpdated = false
+				a.TasksLock.Unlock()
+				show := object.(taskShow)
+				task.Lock.Lock()
+
+				// make sure nil pointer doesn't happen
+				if show.prog == nil {
+					show.prog = widget.NewProgressBarInfinite()
+				}
+				if task.status {
+					show.prog.Start()
+				} else {
+					show.prog.Stop()
+				}
+
+				if show.icon == nil {
+					show.icon = widget.NewIcon(theme.DownloadIcon())
+				}
+				if task.err == nil {
+					show.icon.SetResource(theme.DownloadIcon())
+				} else {
+					show.icon.SetResource(theme.ErrorIcon())
+				}
+
+				if show.label == nil {
+					show.label = widget.NewLabel("Loading...")
+				}
+				show.label.SetText(task.msg)
+				task.Lock.Unlock()
+			},
+		)
+		var tasks fyne.CanvasObject
+		tasks = container.NewPadded(
+			container.NewBorder(
+				container.NewHBox(
+					widget.NewLabel("Tasks"),
+					layout.NewSpacer(),
+					widget.NewButtonWithIcon("Close", theme.CancelIcon(), func() {
+						tasks.Hide()
+					}),
+				),
+				nil,
+				nil,
+				nil,
+				tasksList,
+			),
+		)
+
+		widget.ShowModalPopUp(tasks, win.Canvas())
+	}
+}
+
+func NewApps(apps AppList, win fyne.Window) fyne.CanvasObject {
+	a := new(Apps)
+	a.name = widget.NewLabel("")
+	a.developer = widget.NewLabel("")
+	a.link = widget.NewHyperlink("", nil)
+	a.summary = widget.NewLabel("")
+	a.summary.Wrapping = fyne.TextWrapWord
+	a.version = widget.NewLabel("")
+	a.date = widget.NewLabel("")
+	a.icon = &canvas.Image{}
+	a.icon.FillMode = canvas.ImageFillContain
+	a.screenshot = &canvas.Image{}
+	a.screenshot.SetMinSize(fyne.NewSize(320, 240))
+	a.screenshot.FillMode = canvas.ImageFillContain
+	a.Tasks = []*Task{
+		{
+			status: false,
+			err:    nil,
+			msg:    "task 1",
+		},
+		{
+			status: true,
+			err:    nil,
+			msg:    "task 2",
+		},
+	}
+
+	dateAndVersion := fyne.NewContainerWithLayout(layout.NewGridLayout(2), a.date,
+		widget.NewForm(&widget.FormItem{Text: "Version", Widget: a.version}))
 
 	form := widget.NewForm(
-		&widget.FormItem{Text: "Name", Widget: w.name},
-		&widget.FormItem{Text: "Developer", Widget: w.developer},
-		&widget.FormItem{Text: "Website", Widget: w.link},
-		&widget.FormItem{Text: "Summary", Widget: w.summary},
+		&widget.FormItem{Text: "Name", Widget: a.name},
+		&widget.FormItem{Text: "Developer", Widget: a.developer},
+		&widget.FormItem{Text: "Website", Widget: a.link},
+		&widget.FormItem{Text: "Summary", Widget: a.summary},
 		&widget.FormItem{Text: "Date", Widget: dateAndVersion},
 	)
 
-	details := fyne.NewContainerWithLayout(&iconHoverLayout{content: form, icon: w.icon}, form, w.icon)
+	details := fyne.NewContainerWithLayout(&iconHoverLayout{content: form, icon: a.icon}, form, a.icon)
 
 	list := widget.NewList(
 		func() int {
@@ -192,18 +301,19 @@ func NewApps(apps AppList, win fyne.Window) fyne.CanvasObject {
 		},
 	)
 	list.OnSelected = func(id int) {
-		w.loadAppDetail(apps[id])
+		a.loadAppDetail(apps[id])
 	}
 
 	buttons := container.NewHBox(
+		widget.NewButton("Tasks", a.tasks(win)),
 		layout.NewSpacer(),
-		widget.NewButton("Install", w.installer(win)),
+		widget.NewButton("Install", a.installer(win)),
 	)
 
 	if len(apps) > 0 {
-		w.loadAppDetail(apps[0])
+		a.loadAppDetail(apps[0])
 	}
-	content := container.NewBorder(details, nil, nil, nil, w.screenshot)
+	content := container.NewBorder(details, nil, nil, nil, a.screenshot)
 	return container.NewBorder(nil, nil, list, nil,
 		container.NewBorder(nil, buttons, nil, nil, content))
 }

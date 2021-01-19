@@ -5,6 +5,8 @@ go 1.12
 require (
 	fyne.io/fyne v1.4.3-0.20201230204032-4564e78da2f3
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20201108214237-06ea97f0c265 // indirect
+	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
+	github.com/pelletier/go-toml v1.8.1
 	github.com/stretchr/testify v1.6.1
 	golang.org/x/image v0.0.0-20201208152932-35266b937fa6 // indirect
 	golang.org/x/net v0.0.0-20201216054612-986b41b23924 // indirect
